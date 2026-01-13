@@ -3,7 +3,7 @@ A_MenuMaskKey := "vkE8"
 
 global leaderTimeout := 0
 global leaderHoldTimeout := 0
-global leaderKey := "CapsLock"
+global leaderKey := "b"
 global lkeyWithPre
 global currentSeq := ""
 global defaultShellPrefix := "pwsh -NoExit -Command"
@@ -24,8 +24,8 @@ SetupLeaderKey() {
     global lkeyWithPre
     global useCapsPlus
 
-    Hotkey("~" lkeyWithPre, (*) => SendInput("{Blind}{vkE8}"), "On")
-    Hotkey("~" lkeyWithPre " Up", LeaderUpHandler, "On")
+    Hotkey(lkeyWithPre, (*) => SendInput("{Blind}{vkE8}"), "On")
+    Hotkey(lkeyWithPre " Up", LeaderUpHandler, "On")
 }
 
 IsModifierKey(key) {
