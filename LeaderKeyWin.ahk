@@ -81,7 +81,7 @@ class Status {
 class Log {
     static file := Config.dataPath "\_.log"
 
-    static Log(message := "", title := "", level := "INFO", autoIndent := true) {
+    static Log(message := "", title := "", level := "INFO") {
 
         if title
             title := '[' title '] '
@@ -91,10 +91,10 @@ class Log {
         prefix := timestamp " " levelStr " "
         indent := ""
 
-        if autoIndent
-            loop (StrLen(prefix)) {
-                indent .= " "
-            }
+
+        loop (StrLen(prefix)) {
+            indent .= " "
+        }
 
         message := StrReplace(message, '`n', '`n' . indent)
 
@@ -110,16 +110,16 @@ class Log {
         }
     }
 
-    static LogWarn(message := "", title := "", autoIndent := true) {
+    static LogWarn(message := "", title := "") {
         Log.Log(message, title, "WARN")
     }
 
-    static LogError(message := "", title := "", autoIndent := true) {
+    static LogError(message := "", title := "") {
         Log.Log(message, title, "ERROR")
     }
 
-    static LogFatal(message := "", title := "", autoIndent := true) {
-        Log.Log(message, title, "FATAL")
+    static LogFatal(e) {
+        Log.Log(e.Message "`n" . e.Stack, 'Unexpected termination', "FATAL")
     }
 }
 
@@ -146,10 +146,7 @@ Init() {
         Log.Log("Leader Key Win started. Enjoy!")
     }
     catch Error as e {
-        err := "`n[" e.What "] "
-        err := err . e.Message "`n"
-        err := err . e.Stack
-        Log.LogFatal(err, 'Unexpected termination', "FATAL")
+        Log.LogFatal(e)
         throw
     }
 }
@@ -329,90 +326,105 @@ Control2Ctrl(control) {
 }
 
 LeaderUpHandler(_) {
-    if (Status.leaderState) {
-        return
-    }
-
-    priorKey := Control2Ctrl(A_PriorKey)
-    if (priorKey != Config.leaderKey || (A_TimeSincePriorHotkey > Config.leaderHoldTimeout && Config.leaderHoldTimeout > 0)) {
-        return
-    }
-
-    Status.leaderState := true
-    Hotkey(Config.leaderKeyWithPre, (*) => SendInput("{Blind}{vkE8}"), "Off")
-    Hotkey(Config.leaderKeyWithPre " Up", LeaderUpHandler, "Off")
-
-    ; 待修改GUI
-
-    ih := InputHook("M T" Config.leaderTimeout / 1000)
-    ih.KeyOpt('{All}', "N")
-    ih.NotifyNoncharacter := true
-    ih.OnKeyUp := OnKeyUpHandler
-    ih.OnKeyDown := OnKeyDownandler
-    ih.Start()
-}
-
-OnKeyDownandler(ih, vk, sc) {
-    ; 如果是修饰键按下，就记住修饰键已按下，等到释放的时候过滤修饰键
-    key := Control2Ctrl(GetKeyName(Format("vk{:X}sc{:X}", vk, sc)))
-    if IsModifierKey(key)
-        Config.modifierKeyStatus[key] := "waitting"
-}
-
-OnKeyUpHandler(ih, vk, sc) {
-    static s_sequence := ""
-    static s_keymap := ""
-
-    key := Control2Ctrl(GetKeyName(Format("vk{:X}sc{:X}", vk, sc)))
-    if IsModifierKey(key) {
-        ; 如果是修饰键释放，清除状态并过滤信号
-        Config.modifierKeyStatus[key] := ""
-        return
-    }
-
-    modifierSequence := ""
-    for modifier in Config.modifierKeyStatus {
-        if Config.modifierKeyStatus[modifier] == "waitting" {
-            ; 如果有等待记录的修饰键，则记录并修改状态
-            modifierSequence .= "{" modifier "}"
-            Config.modifierKeyStatus[modifier] := "done"
-        }
-    }
-
-    key := modifierSequence . key
-    s_sequence := s_sequence . key
-
-    ;TODO 匹配修饰符不到的时候尝试匹配没有LR的版本
-
-    if s_keymap == ""
-        s_keymap := Config.keyMap
-
-    if s_keymap.Has(s_sequence) {
-        s_keymap := s_keymap[s_sequence]
-        if s_keymap.Has("subKeymap") {
-            ; 如果包含 subKeymap 还需要继续等待下一个 s_sequence
-            s_keymap := s_keymap["subKeymap"]
-            s_sequence := ""
+    try {
+        if (Status.leaderState) {
             return
         }
 
-        ; 提早结束 InputHook 防止用户配置的 SendInput 被脚本捕获
-        ih.Stop()
-        for c in s_keymap["commands"] {
-            c()
+        priorKey := Control2Ctrl(A_PriorKey)
+        if (priorKey != Config.leaderKey || (A_TimeSincePriorHotkey > Config.leaderHoldTimeout && Config.leaderHoldTimeout > 0)) {
+            return
         }
-    } else {
-        ; 没有匹配到但是 s_sequence 被包含在某个 key 内，那就需要继续等待下一个按键来完善 s_sequence
-        for k in s_keymap {
-            if InStr(k, s_sequence, 1, true) == 1
-                return
-        }
-    }
 
-    s_sequence := ""
-    s_keymap := ""
-    ih.Stop()
-    ClearStatus()
+        Status.leaderState := true
+        Hotkey(Config.leaderKeyWithPre, (*) => SendInput("{Blind}{vkE8}"), "Off")
+        Hotkey(Config.leaderKeyWithPre " Up", LeaderUpHandler, "Off")
+
+        ; 待修改GUI
+
+        ih := InputHook("M T" Config.leaderTimeout / 1000)
+        ih.KeyOpt('{All}', "N")
+        ih.NotifyNoncharacter := true
+        ih.OnKeyUp := OnKeyUpHandler
+        ih.OnKeyDown := OnKeyDownandler
+        ih.Start()
+    } catch Error as e {
+        Log.LogFatal(e)
+        throw
+    }
+}
+
+OnKeyDownandler(ih, vk, sc) {
+    try {
+        ; 如果是修饰键按下，就记住修饰键已按下，等到释放的时候过滤修饰键
+        key := Control2Ctrl(GetKeyName(Format("vk{:X}sc{:X}", vk, sc)))
+        if IsModifierKey(key)
+            Config.modifierKeyStatus[key] := "waitting"
+    } catch Error as e {
+        Log.LogFatal(e)
+        throw
+    }
+}
+
+OnKeyUpHandler(ih, vk, sc) {
+    try {
+        static s_sequence := ""
+        static s_keymap := ""
+
+        key := Control2Ctrl(GetKeyName(Format("vk{:X}sc{:X}", vk, sc)))
+        if IsModifierKey(key) {
+            ; 如果是修饰键释放，清除状态并过滤信号
+            Config.modifierKeyStatus[key] := ""
+            return
+        }
+
+        modifierSequence := ""
+        for modifier in Config.modifierKeyStatus {
+            if Config.modifierKeyStatus[modifier] == "waitting" {
+                ; 如果有等待记录的修饰键，则记录并修改状态
+                modifierSequence .= "{" modifier "}"
+                Config.modifierKeyStatus[modifier] := "done"
+            }
+        }
+
+        key := modifierSequence . key
+        s_sequence := s_sequence . key
+
+        ;TODO 匹配修饰符不到的时候尝试匹配没有LR的版本
+
+        if s_keymap == ""
+            s_keymap := Config.keyMap
+
+        if s_keymap.Has(s_sequence) {
+            s_keymap := s_keymap[s_sequence]
+            if s_keymap.Has("subKeymap") {
+                ; 如果包含 subKeymap 还需要继续等待下一个 s_sequence
+                s_keymap := s_keymap["subKeymap"]
+                s_sequence := ""
+                return
+            }
+
+            ; 提早结束 InputHook 防止用户配置的 SendInput 被脚本捕获
+            ih.Stop()
+            for c in s_keymap["commands"] {
+                c()
+            }
+        } else {
+            ; 没有匹配到但是 s_sequence 被包含在某个 key 内，那就需要继续等待下一个按键来完善 s_sequence
+            for k in s_keymap {
+                if InStr(k, s_sequence, 1, true) == 1
+                    return
+            }
+        }
+
+        s_sequence := ""
+        s_keymap := ""
+        ih.Stop()
+        ClearStatus()
+    } catch Error as e {
+        Log.LogFatal(e)
+        throw
+    }
 }
 
 GenerateCommandCallback(command) {
